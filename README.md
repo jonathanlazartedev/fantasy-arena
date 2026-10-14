@@ -728,5 +728,3 @@ La contra de guardia usa los clips del combo de cada arma, igual que antes.
 - Salto con caída sin marca en el suelo; la IA reacciona al verle bajar.
 - Arco/ballesta: mantener tensa sin disparar, dispara al soltar; cargado ≥ 0,9 s con brillo dorado y sonido.
 - Botón ▶ en el HUD para cambiar la habilidad de jefe. Pruebas: `tests/test_round32.gd`.
-#   f a n t a s y - a r e n a  
- 
