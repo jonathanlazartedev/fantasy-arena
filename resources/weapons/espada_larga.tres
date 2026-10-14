@@ -1,0 +1,84 @@
+[gd_resource type="Resource" script_class="WeaponDef" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/weapon_def.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/data/combo_hit.gd" id="ch"]
+
+[sub_resource type="Resource" id="combo_0"]
+script = ExtResource("ch")
+hitstun = 0.4
+name = "Arco amplio"
+anim = "2H_Melee_Attack_Slice"
+direction = "der→izq"
+damage = 15.0
+reach = 2.6
+arc_deg = 85.0
+windup = 0.48
+active = 0.14
+recovery = 0.6
+stamina = 16.0
+window = 0.45
+
+[sub_resource type="Resource" id="combo_1"]
+script = ExtResource("ch")
+hitstun = 0.4
+name = "Arco de vuelta"
+anim = "2H_Melee_Attack_Slice"
+reverse = true
+direction = "izq→der"
+damage = 15.0
+reach = 2.6
+arc_deg = 85.0
+windup = 0.4
+active = 0.14
+recovery = 0.6
+stamina = 16.0
+window = 0.45
+
+[sub_resource type="Resource" id="combo_2"]
+script = ExtResource("ch")
+hitstun = 1.0
+name = "Giro devastador"
+anim = "2H_Melee_Attack_Spin"
+direction = "giro"
+damage = 24.0
+reach = 2.8
+arc_deg = 180.0
+windup = 0.55
+active = 0.2
+recovery = 0.75
+stamina = 22.0
+poise_mult = 2.2
+finisher = true
+
+[resource]
+script = ExtResource("1")
+scaling = {"fuerza": 1.0, "destreza": 1.0}
+requirements = {"fuerza": 8, "destreza": 8}
+id = "espada_larga"
+step_light = Array[float]([1.2, 1.2, 1.5])
+step_heavy = 1.8
+display_name = "Espada larga"
+description = "A dos manos: más alcance y daño, sin escudo."
+allows_shield = false
+reach_foot = 2.6
+reach_mounted = 3.8
+half_arc_foot_deg = 75.0
+phys_type = "cortante"
+light_damage = 15.0
+heavy_damage = 30.0
+light_windup = 0.5
+heavy_windup = 0.9
+light_recovery = 0.65
+heavy_recovery = 0.8
+light_stamina = 17.0
+heavy_stamina = 32.0
+poise_damage_mult = 1.2
+guard_break_mult = 1.2
+no_shield_block_chip = 0.4
+anim_light = PackedStringArray("2H_Melee_Attack_Slice", "2H_Melee_Attack_Chop", "2H_Melee_Attack_Spin")
+anim_heavy = "2H_Melee_Attack_Chop"
+anim_idle = "2H_Melee_Idle"
+mesh_right = "2H_Sword"
+max_combo = 3
+combo = Array[Resource]([SubResource("combo_0"), SubResource("combo_1"), SubResource("combo_2")])
+heavy_hitstun = 0.7

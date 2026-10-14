@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="AIDifficulty" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ai/ai_difficulty.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+profile_name = "normal"
+level = 2
+breather_chance = 0.35
+breather_min = 2.0
+breather_max = 4.5
+breather_dist = 11.0
+breather_interval = 14.0
+jump_aoe_chance = 0.6
+special_chance = 0.3
+guard_counter_chance = 0.45
+crit_chance = 0.85
+delay_chance = 0.35
+delay_max = 0.45
+boss_use_chance = 0.03
+boss_dodge_chance = 0.6
+boss_dodge_err = 0.12
