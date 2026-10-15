@@ -1,7 +1,7 @@
 class_name PlayerController
 extends Node
 ## Lee teclado + controles táctiles y los traduce a órdenes del luchador.
-## Lock-on (fijar objetivo) activado por defecto: Tab/Q o botón "Fijar".
+## Lock-on (fijar objetivo) activado por defecto: Tab o botón "Fijar".
 
 var me: Fighter
 var camera: Camera3D
@@ -13,6 +13,9 @@ var lock_on: bool = true
 var _prev: Dictionary = {}
 var _atk_hold: float = -1.0
 var _heavy_fired: bool = false
+const LEFT_HOLD_FOR_SHIELD := 0.18
+var _left_hand_down: bool = false
+var _left_hand_t: float = 0.0
 ## Ronda 15: correr a pie alternado (V / Bloq Mayús / botón táctil «Correr»). Mantener Mayús también corre.
 var run_toggled: bool = false
 ## Ronda 16: objetivo fijado y cambio de objetivo (Z / rueda del ratón / botón «Objetivo»).
@@ -113,16 +116,33 @@ func _physics_process(delta: float) -> void:
 	
 	if menu_hold:
 		me.move_input = Vector3.ZERO
-		me.want_block = enabled and not me.mounted
+		me.want_block = false
 		me.want_sprint = false
 		me.want_charge = false
 		_smooth = Vector2.ZERO
 		_atk_hold = -1.0
+		_left_hand_down = false
+		_left_hand_t = 0.0
 		_clear_buffer()
 		for k: String in _prev:
 			_prev[k] = Input.is_action_pressed(k)
 		return
 		
+	var hand_down := cmd.block_pressed or Input.is_action_pressed("left_hand")
+	var hand_tap := false
+	if hand_down:
+		if _left_hand_down:
+			_left_hand_t += delta
+		else:
+			_left_hand_t = 0.0
+		me.want_block = enabled and not me.mounted and _left_hand_t >= LEFT_HOLD_FOR_SHIELD and me.has_shield()
+	elif _left_hand_down:
+		hand_tap = _left_hand_t < LEFT_HOLD_FOR_SHIELD
+		_left_hand_t = 0.0
+		me.want_block = false
+	elif cmd.parry_pressed:
+		hand_tap = true
+	_left_hand_down = hand_down
 	var v := shape_stick(cmd.move_vector)
 	if joystick:
 		v = (v + shape_stick(joystick.axis)).limit_length(1.0)
@@ -136,7 +156,7 @@ func _physics_process(delta: float) -> void:
 		fwd = MeshUtil.flat(-camera.global_transform.basis.z).normalized()
 	var right := fwd.cross(Vector3.UP)
 	me.move_input = (right * v.x + fwd * -v.y) if enabled else Vector3.ZERO
-	me.want_block = enabled and (cmd.block_pressed or Input.is_action_pressed("block"))
+	me.want_block = enabled and me.want_block
 	
 	if _pressed_edge("run_toggle") and not me.mounted:
 		run_toggled = not run_toggled
@@ -148,11 +168,12 @@ func _physics_process(delta: float) -> void:
 	me.want_charge = enabled and atk_down
 	var atk_edge := cmd.attack_light_pressed or _pressed_edge("attack_sword")
 	var swp := _pressed_edge("swap_weapon")
-	var pr := cmd.parry_pressed or _pressed_edge("parry")
+	var pr := hand_tap
 	var sm := _pressed_edge("summon")
 	var ds := cmd.roll_pressed or _pressed_edge("dash")
 	var mt := _pressed_edge("mount")
 	var jp := cmd.jump_pressed or _pressed_edge("jump")
+	var fl := cmd.flask_pressed or _pressed_edge("flask")
 	var sp := _pressed_edge("special")
 	var cs := _pressed_edge("spell")
 	var cn := _pressed_edge("spell_next")
@@ -188,8 +209,9 @@ func _physics_process(delta: float) -> void:
 	if pr: _try("parry")
 	if cn: me.cycle_spell()
 	if cs: _try("spell")
-	if sm: me.summon()
+	if sm: _try("summon")
 	if ds: _try("dash")
+	if fl: _try("flask")
 	if mt: _try("mount")
 	if jp: _try("jump")
 	if sp: _try("special")
@@ -202,6 +224,7 @@ static var buffer_window: float = BUFFER_WINDOW
 var buffered: String = ""
 var buffer_age: float = 0.0
 var buffer_fired: Array[String] = []
+var _action_buffer: Array[Dictionary] = []
 var _prev_stun: float = 0.0
 
 func _do(a: String, retry: bool) -> bool:
@@ -216,6 +239,8 @@ func _do(a: String, retry: bool) -> bool:
 		"jump": return me.jump()
 		"boss": return me.boss_skill()
 		"mount": return me.toggle_mount()
+		"summon": return me.summon()
+		"flask": return me.drink_flask()
 		"dash":
 			if retry and me.atk_state == Fighter.Atk.WINDUP:
 				return false
@@ -223,27 +248,27 @@ func _do(a: String, retry: bool) -> bool:
 	return false
 
 func _try(a: String) -> void:
-	if _do(a, false):
-		if buffered == a:
-			_clear_buffer()
+	if _action_buffer.is_empty() and _do(a, false):
 		return
-	if buffered == "dash" and a != "dash":
-		return
-	buffered = a
-	buffer_age = 0.0
+	for entry: Dictionary in _action_buffer:
+		if String(entry["action"]) == a:
+			return
+	_action_buffer.append({"action": a, "age": 0.0})
+	_sync_buffer_head()
 
 func _update_buffer(delta: float) -> void:
-	if buffered == "":
+	for entry: Dictionary in _action_buffer:
+		entry["age"] = float(entry["age"]) + delta
+	while not _action_buffer.is_empty() and float(_action_buffer[0]["age"]) > buffer_window:
+		_action_buffer.pop_front()
+	_sync_buffer_head()
+	if _action_buffer.is_empty():
 		return
-	buffer_age += delta
-	if buffer_age > buffer_window:
-		_clear_buffer()
-		return
-	if buffer_age <= 0.0:
-		return
-	if _do(buffered, true):
-		buffer_fired.append(buffered)
-		_clear_buffer()
+	var action := String(_action_buffer[0]["action"])
+	if _do(action, true):
+		buffer_fired.append(action)
+		_action_buffer.pop_front()
+		_sync_buffer_head()
 
 func _update_buffer_hit() -> void:
 	if me.stun > _prev_stun + 0.001:
@@ -251,5 +276,14 @@ func _update_buffer_hit() -> void:
 	_prev_stun = me.stun
 
 func _clear_buffer() -> void:
+	_action_buffer.clear()
 	buffered = ""
 	buffer_age = 0.0
+
+func _sync_buffer_head() -> void:
+	if _action_buffer.is_empty():
+		buffered = ""
+		buffer_age = 0.0
+		return
+	buffered = String(_action_buffer[0]["action"])
+	buffer_age = float(_action_buffer[0]["age"])

@@ -89,6 +89,11 @@ static func _update_timeline(f: Fighter, delta: float, d: Dictionary, prev: floa
 
 static func _strike_timeline_hit(f: Fighter, d: Dictionary, h: Array) -> bool:
 	f._snd("swing_heavy" if float(h[1]) >= 1.2 else "swing")
+	if f._kv:
+		var trail_color: Color = d.get("color", Color(1.0, 0.8, 0.3))
+		if f.ab_id == "presa_verdugo":
+			trail_color = Color(1.0, 0.22, 0.12)
+		f._kv.flash_sword_trail(trail_color)
 	var any_hit := false
 	var reach := float(d.get("reach", 2.8))
 	var arc := float(d.get("arc", 60.0))
@@ -116,9 +121,17 @@ static func _strike_timeline_hit(f: Fighter, d: Dictionary, h: Array) -> bool:
 			f.hitstop.emit(0.06)
 			if res == "hit" and d.get("grab", false) and f.ab_fired == 0 and t is Fighter:
 				var tf := t as Fighter
+				f.execution_cinematic.emit(f, tf, 0.8)
 				tf.apply_stun(float(d.get("grab_stun", 1.1)))
 				tf.global_position = f.global_position + f.facing * 1.1
 				tf._clamp_world()
+	var hits: Array = d["hits"]
+	var slam_on_last: bool = not bool(d.get("slam_on_last", false)) or f.ab_fired >= hits.size() - 1
+	if any_hit and slam_on_last and d.has("slam_radius"):
+		var center := f.global_position + f.facing * 1.2
+		var slam := GroundAoE.spawn(f.get_parent(), f, f.team, center, float(d["slam_radius"]), float(d.get("slam_warn", 0.35)), f.ab_damage(f.ab_id, float(d.get("slam_mult", 0.65))))
+		slam.stun_force = f.ab_force(float(d.get("slam_force", 40.0)), false)
+		f._snd("eikon_slam")
 	return any_hit
 
 static func _update_wave(f: Fighter, delta: float, d: Dictionary, prev: float, tk: float, tg: Node3D) -> void:

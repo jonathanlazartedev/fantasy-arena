@@ -23,6 +23,7 @@ const DEFS := {
 		"dmg": 1.5, "color": Color(1.0, 0.8, 0.3), "kind": "jefe", "unblockable": true,
 		"hits": [[1.25, 1.0, 40.0, 7.0]], "flicker": [0.5, 0.85],
 		"reach": 3.0, "arc": 55.0, "track": 220.0, "recovery": 0.9, "resist": 0.8,
+		"slam_radius": 4.5, "slam_warn": 0.35, "slam_mult": 0.65, "slam_force": 40.0, "slam_on_last": true,
 	},
 	"presa_verdugo": {
 		"name": "Presa del Verdugo", "desc": "Agarre imparable. Se esquiva rodando o saltando; si falla, queda expuesto.",
@@ -38,6 +39,7 @@ const DEFS := {
 		"dmg": 1.3, "color": Color(1.0, 0.5, 0.1), "kind": "jefe", "unblockable": true,
 		"hits": [[1.0, 1.0, 35.0, 0.0], [1.45, 1.2, 35.0, 0.0]],
 		"reach": 3.6, "arc": 180.0, "track": 120.0, "recovery": 1.0, "resist": 1.5,
+		"slam_radius": 4.2, "slam_warn": 0.2, "slam_mult": 0.75, "slam_force": 42.0, "slam_on_last": true,
 	},
 	"danza_cisne": {
 		"name": "Danza del Cisne", "desc": "Ráfaga de 6 tajos con i-frames breves. Un parry la corta; al acabar, muy castigable.",

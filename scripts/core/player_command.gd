@@ -10,6 +10,7 @@ var block_pressed: bool = false
 var roll_pressed: bool = false
 var parry_pressed: bool = false
 var jump_pressed: bool = false
+var flask_pressed: bool = false
 var target_index: int = -1
 
 func to_dict() -> Dictionary:
@@ -21,6 +22,7 @@ func to_dict() -> Dictionary:
 		"rl": roll_pressed,
 		"pr": parry_pressed,
 		"jp": jump_pressed,
+		"fh": flask_pressed,
 		"ti": target_index
 	}
 
@@ -34,5 +36,6 @@ static func from_dict(d: Dictionary) -> PlayerCommand:
 	cmd.roll_pressed = d.get("rl", false)
 	cmd.parry_pressed = d.get("pr", false)
 	cmd.jump_pressed = d.get("jp", false)
+	cmd.flask_pressed = d.get("fh", false)
 	cmd.target_index = d.get("ti", -1)
 	return cmd

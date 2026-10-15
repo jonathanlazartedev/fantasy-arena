@@ -16,9 +16,10 @@ func poll_local_command() -> PlayerCommand:
 	cmd.move_vector = raw_v
 	cmd.attack_light_pressed = Input.is_action_just_pressed("attack_sword")
 	cmd.attack_heavy_held = Input.is_action_pressed("attack_sword")
-	cmd.block_pressed = Input.is_action_pressed("block")
+	cmd.block_pressed = Input.is_action_pressed("left_hand")
 	cmd.roll_pressed = Input.is_action_just_pressed("dash")
-	cmd.parry_pressed = Input.is_action_just_pressed("parry")
+	cmd.parry_pressed = Input.is_action_just_pressed("left_hand")
 	cmd.jump_pressed = Input.is_action_just_pressed("jump")
+	cmd.flask_pressed = Input.is_action_just_pressed("flask")
 	
 	return cmd
