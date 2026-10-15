@@ -107,6 +107,7 @@ func _ready() -> void:
 	_touch_button("↻", "spell_next", Vector2(722, 360), 24, Color(0.7, 0.5, 1.0))
 	# Ronda 25: habilidad de jefe
 	_touch_button("Jefe", "boss", Vector2(840, 300), 38, Color(1.0, 0.3, 0.15))
+	_touch_button("Estocada", "boss_variation", Vector2(840, 235), 32, Color(1.0, 0.58, 0.2))
 	# Ronda 32: flecha para cambiar de habilidad de jefe (botón normal: se ve en PC y en Android)
 	boss_next_btn = Button.new()
 	boss_next_btn.name = "BossNext"
@@ -428,6 +429,8 @@ func _update_contextual_buttons() -> void:
 	(btns["left_hand"] as TouchScreenButton).visible = tv and not _player.mounted
 	(btns["swap_weapon"] as TouchScreenButton).visible = tv and _player.secondary != null
 	(btns["boss"] as TouchScreenButton).visible = tv and not _player.mounted
+	var combo_hits: Array = BossAbilities.def("combo_falso").get("hits", [])
+	(btns["boss_variation"] as TouchScreenButton).visible = tv and not _player.mounted and _player.ab_id == "combo_falso" and _player.ab_fired == combo_hits.size() - 1
 	if boss_next_btn:
 		boss_next_btn.visible = not _player.mounted and _player.boss_ids.size() > 1
 	# Ronda 31: sin recarga; habilidad seleccionada y su coste

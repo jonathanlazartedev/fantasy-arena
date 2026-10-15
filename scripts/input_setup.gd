@@ -21,6 +21,7 @@ const ACTIONS := {
 	"spell": [KEY_X], ## Ronda 21: lanzar hechizo de eikon (a pie)
 	"spell_next": [KEY_T],
 	"boss": [KEY_B],
+	"boss_variation": [KEY_M],
 	"boss_next": [KEY_N], ## Ronda 31: siguiente habilidad de jefe equipada ## Ronda 25: habilidad de jefe (Estocada de jefe) ## Ronda 21: siguiente ranura de hechizo
 	"flask": [KEY_H], ## Frasco de curación
 }

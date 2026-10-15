@@ -178,6 +178,7 @@ func _physics_process(delta: float) -> void:
 	var cs := _pressed_edge("spell")
 	var cn := _pressed_edge("spell_next")
 	var bs := _pressed_edge("boss")
+	var bv := _pressed_edge("boss_variation")
 	var bn := _pressed_edge("boss_next")
 	
 	_update_buffer_hit()
@@ -217,6 +218,7 @@ func _physics_process(delta: float) -> void:
 	if sp: _try("special")
 	if bn: me.cycle_boss()
 	if bs: _try("boss")
+	if bv: _try("boss_variation")
 	_update_buffer(delta)
 
 const BUFFER_WINDOW := 0.4
@@ -238,6 +240,7 @@ func _do(a: String, retry: bool) -> bool:
 		"special": return not me.mounted and me.special()
 		"jump": return me.jump()
 		"boss": return me.boss_skill()
+		"boss_variation": return me.boss_variation()
 		"mount": return me.toggle_mount()
 		"summon": return me.summon()
 		"flask": return me.drink_flask()
@@ -253,13 +256,18 @@ func _try(a: String) -> void:
 	for entry: Dictionary in _action_buffer:
 		if String(entry["action"]) == a:
 			return
-	_action_buffer.append({"action": a, "age": 0.0})
+	_action_buffer.append({"action": a, "age": 0.0, "window": _action_buffer_window(a)})
 	_sync_buffer_head()
+
+func _action_buffer_window(action: String) -> float:
+	if action == "boss" and me != null and me.ab_id == "rafaga":
+		return maxf(buffer_window, 1.0)
+	return buffer_window
 
 func _update_buffer(delta: float) -> void:
 	for entry: Dictionary in _action_buffer:
 		entry["age"] = float(entry["age"]) + delta
-	while not _action_buffer.is_empty() and float(_action_buffer[0]["age"]) > buffer_window:
+	while not _action_buffer.is_empty() and float(_action_buffer[0]["age"]) > float(_action_buffer[0].get("window", buffer_window)):
 		_action_buffer.pop_front()
 	_sync_buffer_head()
 	if _action_buffer.is_empty():

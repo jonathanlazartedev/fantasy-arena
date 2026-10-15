@@ -997,7 +997,7 @@ func _physics_process(delta: float) -> void:
 	_rider_root.rotation.y = rider_yaw
 	_update_stamina(delta, amount < 0.3 or reversing)
 	# Ronda 29: salto comprometido. La trayectoria queda fijada al despegar (sin control aéreo).
-	if not airborne:
+	if not airborne and roll_t < 0.0 and dash_time <= 0.0:
 		var move_accel: float = st.acceleration
 		if fluid and not mounted:
 			if target_vel.length() < planar_vel.length() - 0.1:
@@ -1029,7 +1029,8 @@ func _physics_process(delta: float) -> void:
 		planar_vel = v
 	elif roll_t >= 0.0:
 		v = _roll_velocity()
-		planar_vel = v
+		# La voltereta controla el desplazamiento actual, pero no debe borrar
+		# la velocidad de locomoción que se retoma cuando termina.
 	elif dash_time > 0.0:
 		v = dash_dir * st.dash_speed
 		if mounted:
@@ -2043,16 +2044,23 @@ func can_use_boss(id: String) -> bool:
 
 func boss_cost_ok(id: String) -> bool:
 	var d := BossAbilities.def(id)
-	var c := float(d.get("cost", 0.0))
+	var c := _boss_press_cost(id)
 	match String(d.get("cost_type", "")):
-		"stamina": return stamina > 0.0 and exhausted <= 0.0
+		"stamina": return stamina >= c and exhausted <= 0.0
 		"mana": return energy >= c
 		"health": return health - c > 0.0 # no te puede dejar a 0
 	return false
 
+func _boss_press_cost(id: String) -> float:
+	var d := BossAbilities.def(id)
+	var cost := float(d.get("cost", 0.0))
+	if id == "combo_falso":
+		return cost / float(maxi((d.get("hits", []) as Array).size(), 1))
+	return cost
+
 func _pay_boss(id: String) -> void:
 	var d := BossAbilities.def(id)
-	var c := float(d["cost"])
+	var c := _boss_press_cost(id)
 	match String(d["cost_type"]):
 		"stamina": spend_stamina(c)
 		"mana":
@@ -2065,6 +2073,16 @@ func _pay_boss(id: String) -> void:
 func boss_skill(id: String = "") -> bool:
 	if id == "":
 		id = selected_boss()
+	if id == "combo_falso" and ab_id == "combo_falso":
+		if ab_combo_queued or ab_fired >= int(BossAbilities.def(id)["hits"].size()):
+			return false
+		if not boss_cost_ok(id):
+			_end_combo_falso(true)
+			return true
+		_pay_boss(id)
+		ab_uses[id] = int(ab_uses.get(id, 0)) + 1
+		ab_combo_queued = true
+		return true
 	if not can_use_boss(id):
 		return false
 	_pay_boss(id)
@@ -2494,6 +2512,11 @@ var ab_counter_triggered: bool = false
 var ab_vanished: bool = false
 var ab_breath_tick: float = 0.0
 var ab_combo_staggered: bool = false
+var ab_combo_queued: bool = false
+var ab_combo_ready: bool = false
+var ab_combo_wait: float = 0.0
+var ab_combo_finisher: bool = false
+var ab_combo_variant: bool = false
 var boss_ids: Array = BossAbilities.DEFAULT.duplicate() ## equipadas (máx. 3)
 var boss_sel: int = 0
 var ab_id: String = "" ## habilidad en curso (la estocada usa boss_phase)
@@ -2541,7 +2564,8 @@ func ab_resist() -> float:
 	if ab_id == "combo_falso":
 		var hits: Array = d["hits"]
 		var last := hits.size() - 1
-		if ab_fired == last and ab_t < float(hits[last][0]):
+		var finisher_windup := float(d["variant_windup"] if ab_combo_variant else d["final_stage_time"])
+		if ab_fired == last and ab_t < finisher_windup:
 			return 1.0 # anticipación alzada del golpe final
 	return float(d.get("resist", 0.0))
 
@@ -2570,6 +2594,11 @@ func _start_ability(id: String) -> void:
 	ab_locked = false
 	ab_fired = 0
 	ab_combo_staggered = false
+	ab_combo_queued = false
+	ab_combo_ready = false
+	ab_combo_wait = 0.0
+	ab_combo_finisher = false
+	ab_combo_variant = false
 	ab_from = global_position
 	blocking = false
 	var d := ab_def()
@@ -2640,10 +2669,10 @@ func _update_ability(delta: float) -> void:
 			var w := float(d["windup"])
 			if ab_t < w and tg:
 				facing = _turn_toward(facing, _spell_dir(), deg_to_rad(360.0) * delta)
-			while ab_fired < int(d["count"]) and ab_t >= w + ab_fired * float(d["interval"]):
+			while ab_fired < int(d["count"]) and ab_t >= w:
 				_fire_magic_slash(d, tg)
 				ab_fired += 1
-			if ab_t >= w + (int(d["count"]) - 1) * float(d["interval"]) + float(d["recovery"]):
+			if ab_t >= w + float(d["recovery"]):
 				_end_ability()
 		"escudo_mana":
 			if ab_t >= float(d["windup"]):
@@ -2652,54 +2681,7 @@ func _update_ability(delta: float) -> void:
 				invuln = 0.0
 				_end_ability()
 		"combo_falso":
-			var hits: Array = d["hits"]
-			# El remate gana una pausa visible: retrocede y salta mientras conserva el objetivo.
-			if ab_fired < hits.size():
-				var th := float(hits[ab_fired][0])
-				var lt := float(d["lunge_time"])
-				var final_hit := ab_fired == hits.size() - 1
-				if final_hit:
-					var leap_time := float(d["final_leap_time"])
-					var leap_start := th - leap_time
-					var rise_time := float(d["final_rise_time"])
-					var apex_hold := float(d["final_apex_hold"])
-					var fall_time := float(d["final_fall_time"])
-					if ab_t >= leap_start and ab_t < th:
-						var elapsed := ab_t - leap_start
-						var height := float(d["final_leap_height"])
-						if elapsed < rise_time:
-							var rise_k := clampf(elapsed / maxf(rise_time, 0.01), 0.0, 1.0)
-							# El impulso nace rápido y pierde velocidad al acercarse al ápice.
-							ab_hop = height * (1.0 - (1.0 - rise_k) * (1.0 - rise_k))
-						elif elapsed < rise_time + apex_hold:
-							ab_hop = height # breve pausa engañosa solo en el punto más alto
-						else:
-							var fall_k := clampf((elapsed - rise_time - apex_hold) / maxf(fall_time, 0.01), 0.0, 1.0)
-							ab_hop = height * (1.0 - fall_k) * (1.0 - fall_k)
-						ab_air = true
-						if tg:
-							var away := MeshUtil.flat(global_position - tg.global_position)
-							if away.length() > 0.1:
-								ab_vel = away.normalized() * float(d["final_retreat_speed"])
-				if tg and ab_t < th:
-					var to_target := MeshUtil.flat(tg.global_position - global_position)
-					if to_target.length() > 0.1:
-						facing = _turn_toward(facing, to_target.normalized(), deg_to_rad(float(d["turn_deg"])) * delta)
-					if not final_hit and ab_t >= th - lt:
-						var gap := to_target.length()
-						var strike_gap := float(d["lunge_stop_dist"])
-						if gap > strike_gap:
-							var remaining := maxf(th - ab_t, delta)
-							var max_speed := float(d["lunge_dist"]) / lt
-							var needed_speed := (gap - strike_gap) / remaining
-							ab_vel = facing * minf(float(d["lunge_speed"]), minf(max_speed, needed_speed))
-				if prev < th and ab_t >= th:
-					ab_air = false
-					ab_hop = 0.0
-					_combo_strike(d, hits[ab_fired])
-					ab_fired += 1
-			if ab_t >= float(hits[-1][0]) + float(d["recovery"]):
-				_end_ability()
+			_update_combo_falso(delta, d, tg)
 		"salto_caida":
 			var rise := float(d["rise"])
 			var lock := float(d["lock"])
@@ -2771,6 +2753,125 @@ func _combo_strike(d: Dictionary, h: Array) -> void:
 		slam.stun_force = ab_force(float(d.get("slam_force", 48.0)), false)
 		_snd("eikon_slam")
 
+func _update_combo_falso(delta: float, d: Dictionary, tg: Node3D) -> void:
+	var hits: Array = d["hits"]
+	if ab_combo_ready:
+		ab_combo_wait += delta
+		if ab_fired >= hits.size():
+			if ab_combo_wait >= float(d["recovery"]):
+				_end_combo_falso(true)
+			return
+		if ab_combo_queued:
+			ab_combo_queued = false
+			ab_combo_ready = false
+			ab_combo_wait = 0.0
+			ab_t = 0.0
+			ab_combo_finisher = ab_fired == hits.size() - 1
+			return
+		if ab_combo_wait >= float(d.get("chain_window", 1.15)):
+			_end_combo_falso(true)
+		return
+
+	var stage := ab_fired
+	var final_hit := stage == hits.size() - 1
+	var strike_time := float(d["stage_windup"])
+	if final_hit:
+		strike_time = float(d["variant_windup"] if ab_combo_variant else d["final_stage_time"])
+		if not ab_combo_variant:
+			var leap_start := strike_time - float(d["final_leap_time"])
+			if ab_t >= leap_start and ab_t < strike_time:
+				var elapsed := ab_t - leap_start
+				var rise_time := float(d["final_rise_time"])
+				var apex_hold := float(d["final_apex_hold"])
+				var fall_time := float(d["final_fall_time"])
+				var height := float(d["final_leap_height"])
+				if elapsed < rise_time:
+					var rise_k := clampf(elapsed / maxf(rise_time, 0.01), 0.0, 1.0)
+					ab_hop = height * (1.0 - (1.0 - rise_k) * (1.0 - rise_k))
+				elif elapsed < rise_time + apex_hold:
+					ab_hop = height
+				else:
+					var fall_k := clampf((elapsed - rise_time - apex_hold) / maxf(fall_time, 0.01), 0.0, 1.0)
+					ab_hop = height * (1.0 - fall_k) * (1.0 - fall_k)
+				ab_air = true
+				if tg:
+					var away := MeshUtil.flat(global_position - tg.global_position)
+					if away.length() > 0.1:
+						ab_vel = away.normalized() * float(d["final_retreat_speed"])
+
+	if tg:
+		var to_target := MeshUtil.flat(tg.global_position - global_position)
+		if to_target.length() > 0.1:
+			facing = _turn_toward(facing, to_target.normalized(), deg_to_rad(float(d["turn_deg"])) * delta)
+			var lunge_time := float(d["lunge_time"])
+			var lunge_enabled := not final_hit or ab_combo_variant
+			if lunge_enabled and ab_t >= strike_time - lunge_time and ab_t < strike_time:
+				var gap := to_target.length()
+				var stop_dist := float(d["lunge_stop_dist"])
+				if final_hit and ab_combo_variant:
+					stop_dist = 1.4
+				if gap > stop_dist:
+					var remaining := maxf(strike_time - ab_t, delta)
+					var distance := float(d["lunge_dist"])
+					if final_hit and ab_combo_variant:
+						distance *= 1.45
+					var needed_speed := (gap - stop_dist) / remaining
+					ab_vel = facing * minf(float(d["lunge_speed"]), minf(distance / lunge_time, needed_speed))
+
+	if ab_t >= strike_time:
+		ab_air = false
+		ab_hop = 0.0
+		if final_hit and ab_combo_variant:
+			_combo_thrust(d, hits[stage])
+		else:
+			_combo_strike(d, hits[stage])
+		ab_fired += 1
+		ab_combo_ready = true
+		ab_combo_wait = 0.0
+
+func _combo_thrust(d: Dictionary, h: Array) -> void:
+	_snd("swing_heavy", -1.0)
+	if _kv:
+		_kv.flash_sword_trail(Color(1.0, 0.56, 0.2), 0.26)
+	var reach := float(d.get("variation_reach", 6.5))
+	for t in MeshUtil.enemies_of(get_tree(), team):
+		var dv := MeshUtil.flat(t.global_position - global_position)
+		if dv.length() > reach + float(t.hit_radius):
+			continue
+		if dv.length() > 0.1 and absf(facing.signed_angle_to(dv.normalized(), Vector3.UP)) > deg_to_rad(65.0):
+			continue
+		if t is Fighter:
+			(t as Fighter).incoming_stun_force = ab_force(float(h[2]) + 8.0, false)
+		var res: String = t.take_hit(ab_damage("combo_falso", float(h[1]) * 1.2), self, "jefe")
+		if t is Fighter:
+			(t as Fighter).incoming_stun_force = -1.0
+		if res == "hit" or res == "block":
+			ab_hits_landed += 1
+			landed_hit.emit(t, res, false)
+			hitstop.emit(0.09)
+			impact.emit(1.0)
+			_burst_particles(Color(1.0, 0.56, 0.2))
+
+func boss_variation() -> bool:
+	var total_hits := int(BossAbilities.def("combo_falso")["hits"].size())
+	if ab_id != "combo_falso" or ab_fired != total_hits - 1 or ab_combo_queued:
+		return false
+	if not boss_cost_ok("combo_falso"):
+		_end_combo_falso(true)
+		return true
+	_pay_boss("combo_falso")
+	ab_uses["combo_falso"] = int(ab_uses.get("combo_falso", 0)) + 1
+	ab_combo_variant = true
+	ab_combo_queued = true
+	return true
+
+func _end_combo_falso(penalize: bool) -> void:
+	var interrupted := penalize and ab_fired < int(BossAbilities.def("combo_falso")["hits"].size())
+	_end_ability(interrupted)
+	if penalize and alive:
+		exhausted = maxf(exhausted, EXHAUST_TIME)
+		stamina_changed.emit(stamina, true)
+
 func _fire_magic_slash(d: Dictionary, tg: Node3D) -> void:
 	var p := Projectile.new()
 	p.team = team
@@ -2783,7 +2884,8 @@ func _fire_magic_slash(d: Dictionary, tg: Node3D) -> void:
 	p.life = float(d["life"])
 	p.radius = float(d.get("radius", 0.7))
 	p.slash = true
-	p.slash_tilt = 45.0 if ab_fired % 2 == 0 else -45.0
+	var cast_index := int(ab_uses.get("rafaga", 1)) - 1
+	p.slash_tilt = 45.0 if cast_index % 2 == 0 else -45.0
 	p.damage = ab_damage("rafaga")
 	p.color = Color(1.0, 0.82, 0.3)
 	p.stun_force = ab_force(float(d["force"]), true)

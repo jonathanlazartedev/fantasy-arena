@@ -694,11 +694,12 @@ func _ability_state(f: Fighter) -> String:
 	match f.ab_id:
 		"carga_area", "furia_fase", "rayos_trazadores", "lluvia_meteoros": return "boss_charge"
 		"rafaga":
-			return "light%d" % (_rafaga_swing_index(f) % 3) if _rafaga_swing_index(f) >= 0 else "cast"
+			var swing_index := _rafaga_swing_index(f)
+			return "light%d" % swing_index if swing_index >= 0 else "cast"
 		"onda_rastrera", "aliento_dragon": return "cast"
 		"escudo_mana", "postura_contra": return "block"
 		"salto_caida": return "jump_air" if f.ab_air else "land"
-		"combo_falso": return "heavy" if f.ab_fired >= 2 else "light%d" % clampi(f.ab_fired, 0, 2)
+		"combo_falso": return "heavy" if f.ab_combo_finisher else "light%d" % clampi(f.ab_fired, 0, 2)
 		"danza_cisne": return "heavy" if f.ab_fired >= 3 else "light%d" % clampi(f.ab_fired, 0, 2)
 		"tajo_retardado", "giro_martillo", "paso_espectral": return "heavy"
 		"presa_verdugo": return "dash_strike" if f.ab_fired == 0 else "heavy"
@@ -709,15 +710,11 @@ func _ability_state(f: Fighter) -> String:
 func _rafaga_swing_index(f: Fighter) -> int:
 	var d: Dictionary = BossAbilities.def("rafaga")
 	var windup := float(d.get("windup", 0.6))
-	var interval := float(d.get("interval", 0.9))
-	var count := int(d.get("count", 3))
 	var lead := 0.36
 	var tail := 0.5
-	for i in count:
-		var hit_time := windup + float(i) * interval
-		if f.ab_t >= hit_time - lead and f.ab_t < hit_time + tail:
-			return i
-	return -1
+	if f.ab_t < windup - lead or f.ab_t >= windup + tail:
+		return -1
+	return posmod(int(f.ab_uses.get("rafaga", 1)) - 1, 3)
 
 
 func set_paused(paused: bool) -> void:
@@ -827,9 +824,7 @@ func update(f: Fighter, delta: float) -> void:
 		if key != _ab_hit_key:
 			_ab_hit_key = key
 			playback.start(s, true)
-		var hits: Array = cd["hits"]
-		var nl := hits.size() - 1
-		var wnd := float(cd["hit_windup"]) if f.ab_fired < nl else float(hits[nl][0]) - float(hits[nl - 1][0])
+		var wnd := float(cd["final_stage_time"]) if f.ab_combo_finisher and not f.ab_combo_variant else float(cd["variant_windup"]) if f.ab_combo_variant else float(cd["stage_windup"])
 		tree.set("parameters/act/%s/ts/scale" % s, _clip_len(s) * CONTACT / maxf(wnd, 0.2))
 	elif f.ab_id == "rafaga" and s.begins_with("light"):
 		var swing_index := _rafaga_swing_index(f)
