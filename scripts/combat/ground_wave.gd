@@ -1,10 +1,5 @@
 class_name GroundWave
 extends Node3D
-## Ronda 32: onda que recorre el SUELO (Onda Rastrera). Durante `warn` segundos solo se ve la
-## línea de su trayectoria (telegrafía); después avanza en línea recta. Solo daña a quien toque el
-## suelo: saltar la esquiva (como GroundAoE), y la voltereta con i-frames devuelve "dodge".
-## Cada objetivo se golpea una sola vez. Se detiene en el muro de la arena y en los pilares.
-##   GroundWave.spawn(parent, fuente, equipo, origen, dirección, velocidad, alcance, ancho, daño, fuerza, aviso_s)
 
 var team: int = 0
 var source: Node3D
@@ -19,7 +14,6 @@ var knock: float = 6.0
 var travelled: float = 0.0
 var t: float = 0.0
 var hit_list: Array = []
-## Resultados por objetivo (pruebas / IA): nodo -> "hit", "block", "dodge", "air".
 var results: Dictionary = {}
 var _crest: MeshInstance3D
 var _line: MeshInstance3D
@@ -73,14 +67,14 @@ func _physics_process(delta: float) -> void:
 		if n in hit_list:
 			continue
 		var rel := MeshUtil.flat(n.global_position - p)
-		var hr: float = n.hit_radius
+		var hr: float = n.get("hit_radius") if n.get("hit_radius") != null else 0.75
 		if absf(rel.dot(direction)) > 0.6 + hr * 0.5 + step:
 			continue
 		if absf(rel.dot(side_dir)) > width * 0.5 + hr * 0.5:
 			continue
 		hit_list.append(n)
 		if not GroundAoE.grounded(n):
-			results[n] = "air" # saltó: la onda pasa por debajo
+			results[n] = "air"
 			if n is Fighter:
 				(n as Fighter).aoe_jumped += 1
 			continue
@@ -91,4 +85,5 @@ func _physics_process(delta: float) -> void:
 			(n as Fighter).incoming_stun_force = -1.0
 		results[n] = res
 		if res == "hit" and n is Fighter:
-			(n as Fighter).apply_knockback(direction * knock, false)
+			var f := n as Fighter
+			f.apply_knockback(direction * knock, false)

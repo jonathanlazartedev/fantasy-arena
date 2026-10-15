@@ -627,7 +627,7 @@ func stats() -> MountData:
 	return mount_node.data if mounted and mount_node else foot_stats
 
 func speed_mult() -> float:
-	return character.velocidad * float(mods["velocidad"]) * float(roll_mod()["move"])
+	return character.velocidad * float(mods["velocidad"]) * float(roll_mod()["move"]) * (1.15 if rage_t > 0.0 else 1.0)
 
 func sword_range() -> float:
 	if cur_hit and atk_state != Atk.NONE:
@@ -837,7 +837,18 @@ func _update_stamina(delta: float, idle: bool) -> void:
 
 # ---------------- Bucle principal ----------------
 
+var local_hitstop_t: float = 0.0
+
+func apply_local_hitstop(d: float) -> void:
+	local_hitstop_t = maxf(local_hitstop_t, d)
+	if _kv:
+		_kv.set_paused(true)
+
 func _physics_process(delta: float) -> void:
+	if local_hitstop_t > 0.0:
+		local_hitstop_t = maxf(local_hitstop_t - delta, 0.0)
+		if local_hitstop_t <= 0.0 and _kv:
+			_kv.set_paused(false)
 	riposte_t = maxf(riposte_t - delta, 0.0)
 	if alive:
 		var pd := status_fx.tick(delta)
@@ -1194,7 +1205,7 @@ func damage_mult() -> float:
 		k *= melee().mounted_damage_mult
 	if character.passive_id == "furia" and health < max_health * 0.4:
 		k *= 1.0 + 0.25 * passive_k()
-	return k * Trinkets.dmg_mult(tfx, melee().phys_type)
+	return k * Trinkets.dmg_mult(tfx, melee().phys_type) * (1.3 if rage_t > 0.0 else 1.0)
 
 func _request_attack(heavy: bool) -> bool:
 	if roll_t >= 0.0 and not mounted and loadout == Loadout.SWORD_SHIELD and alive and roll_t < roll_iframe_end():
@@ -1819,6 +1830,11 @@ func take_hit(amount: float, from: Node3D, _kind: String) -> String:
 		var d := MeshUtil.flat(from.global_position - global_position)
 		if d.length() > 0.1:
 			frontal = facing.dot(d.normalized()) > 0.0
+	if ab_id == "postura_contra" and not ab_counter_triggered:
+		var d_pc := ab_def()
+		var w_pc := float(d_pc["windup"]) * telegraph_k
+		if ab_t >= w_pc and ab_t <= w_pc + float(d_pc["stance"]) * telegraph_k and _kind != "aoe":
+			return FighterBossExt.trigger_counter(self, from)
 	if parry_state == Parry.ACTIVE and frontal and _kind != "eikon" and _kind != "aoe" and _kind != "jefe":
 		if from is Fighter and _kind == "melee":
 			(from as Fighter).apply_stun(PARRY_STAGGER)
@@ -2466,7 +2482,12 @@ func _step_velocity(delta: float) -> Vector3:
 	if atk_heavy and charge_t > 0.0 and not _charge_added and atk_state == Atk.ACTIVE:
 		_charge_added = true
 		_step_left += STEP_CHARGE_BONUS * charge_t / CHARGE_MAX # el fuerte cargado avanza más
-	var mv := minf(total / win * delta, _step_left)
+	var elapsed_win: float = (atk_t - atk_dur * (1.0 - STEP_WINDOW)) if atk_state == Atk.WINDUP else (atk_dur * STEP_WINDOW + atk_t)
+	var progress: float = clampf(elapsed_win / win, 0.0, 1.0)
+	var curve_weight: float = sin(progress * PI) * (PI * 0.5)
+	var mv := minf((total / win) * curve_weight * delta, _step_left)
+	if atk_state == Atk.ACTIVE and atk_t + delta >= atk_dur:
+		mv = _step_left
 	var dir := facing
 	var tgt: Node3D = face_target if _lock_valid() else MeshUtil.nearest(global_position, MeshUtil.enemies_of(get_tree(), team))
 	if tgt:
@@ -2574,7 +2595,7 @@ func robustness() -> float:
 ## Súper-armadura de lo que está haciendo ahora (multiplica la robustez por 1 + x).
 func current_stun_resist() -> float:
 	if ab_id != "":
-		return ab_resist()
+		return ab_resist() + (1.0 if rage_t > 0.0 else 0.0)
 	if atk_state == Atk.WINDUP:
 		if atk_heavy:
 			return melee().heavy_stun_resist + StunRules.CHARGE_RESIST * charge_t / CHARGE_MAX
@@ -2720,6 +2741,12 @@ func charged_shot_kind() -> String:
 	return "triple" if r.reload_time > 0.0 else "potente"
 
 # ---------------- Ronda 31: habilidades de jefe (BossAbilities) ----------------
+var telegraph_k: float = 1.15 if OS.has_feature("mobile") else 1.0
+var rage_t: float = 0.0
+var ab_ext_hit_landed: bool = false
+var ab_counter_triggered: bool = false
+var ab_vanished: bool = false
+var ab_breath_tick: float = 0.0
 var boss_ids: Array = BossAbilities.DEFAULT.duplicate() ## equipadas (máx. 3)
 var boss_sel: int = 0
 var ab_id: String = "" ## habilidad en curso (la estocada usa boss_phase)
@@ -2742,7 +2769,7 @@ signal ability_started(id: String)
 func set_boss_abilities(ids: Array) -> void:
 	boss_ids = []
 	for id in ids:
-		if BossAbilities.DEFS.has(String(id)) and not String(id) in boss_ids and boss_ids.size() < BossAbilities.MAX_EQUIPPED:
+		if BossAbilities.has(String(id)) and not String(id) in boss_ids and boss_ids.size() < BossAbilities.MAX_EQUIPPED:
 			boss_ids.append(String(id))
 	boss_sel = 0
 
@@ -2803,6 +2830,8 @@ func _start_ability(id: String) -> void:
 	if _kv:
 		_kv.set_glow(true, col)
 	facing = _spell_dir()
+	if BossAbilitiesExt.DEFS.has(id):
+		FighterBossExt.start(self, id, d)
 	match id:
 		"carga_area":
 			ab_aoe = GroundAoE.spawn(get_parent(), self, team, global_position, float(d["radius"]), float(d["windup"]), ab_damage(id))
@@ -2838,6 +2867,8 @@ func _end_ability(interrupted: bool = false) -> void:
 	ab_vel = Vector3.ZERO
 	ab_air = false
 	ab_hop = 0.0
+	_rider_root.visible = true
+	ab_vanished = false
 	if _kv:
 		_kv.set_glow(false, Color.BLACK)
 
@@ -2848,6 +2879,7 @@ func _update_ability(delta: float) -> void:
 		_end_ability(true)
 		return
 	var d := ab_def()
+	rage_t = maxf(rage_t - delta, 0.0)
 	var prev := ab_t
 	ab_t += delta
 	ab_vel = Vector3.ZERO
@@ -2927,6 +2959,7 @@ func _update_ability(delta: float) -> void:
 					impact.emit(1.0)
 				if ab_t >= land + float(d["recovery"]):
 					_end_ability()
+		_: FighterBossExt.update(self, delta, d, prev)
 
 func _combo_strike(d: Dictionary, h: Array) -> void:
 	_snd("swing", 0.0)

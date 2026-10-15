@@ -575,12 +575,19 @@ func _clip_len(s: String) -> float:
 ## Ronda 31: pose de cada habilidad de jefe.
 func _ability_state(f: Fighter) -> String:
 	match f.ab_id:
-		"carga_area": return "boss_charge"
-		"rafaga": return "cast"
-		"escudo_mana": return "block"
+		"carga_area", "furia_fase", "rayos_trazadores", "lluvia_meteoros": return "boss_charge"
+		"rafaga", "onda_rastrera", "aliento_dragon": return "cast"
+		"escudo_mana", "postura_contra": return "block"
 		"salto_caida": return "jump_air" if f.ab_air else "land"
-		"combo_falso": return "heavy" if f.ab_fired >= 3 else "light%d" % clampi(f.ab_fired, 0, 2)
+		"combo_falso", "danza_cisne": return "heavy" if f.ab_fired >= 3 else "light%d" % clampi(f.ab_fired, 0, 2)
+		"tajo_retardado", "giro_martillo", "paso_espectral": return "heavy"
+		"presa_verdugo": return "dash_strike" if f.ab_fired == 0 else "heavy"
 	return "none"
+
+
+func set_paused(paused: bool) -> void:
+	if tree:
+		tree.active = not paused
 
 func update(f: Fighter, delta: float) -> void:
 	oneshot_t = maxf(oneshot_t - delta, 0.0)

@@ -1070,7 +1070,7 @@ func _build_settings() -> void:
 func _build_boss() -> void:
 	var eq: Array = gs.boss_abilities()
 	list_box.add_child(UIKit.label("Equipadas %d/%d · B usa · N cambia" % [eq.size(), BossAbilities.MAX_EQUIPPED], 16, UIKit.MUTED))
-	for id: String in BossAbilities.ORDER:
+	for id: String in BossAbilities.all_ids():
 		var on: bool = id in eq
 		var b := UIKit.button(("✔ " if on else "   ") + "%s  (%s)" % [BossAbilities.def(id)["name"], BossAbilities.cost_text(id)], 17, UIKit.ORANGE if on else UIKit.BLUE)
 		b.name = "Boss_" + id

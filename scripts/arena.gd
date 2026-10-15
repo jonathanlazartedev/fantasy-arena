@@ -144,6 +144,10 @@ func _on_hitstop(d: float) -> void:
 	if not hitstop_enabled or _hs_prev > 0.0 or Engine.time_scale <= 0.0:
 		return
 	hitstops += 1
+	if is_instance_valid(player):
+		player.apply_local_hitstop(d)
+	if is_instance_valid(enemy):
+		enemy.apply_local_hitstop(d)
 	_hs_prev = Engine.time_scale # respeta la escala previa (pruebas aceleradas, capturas)
 	Engine.time_scale = _hs_prev * 0.05
 	await get_tree().create_timer(d, true, false, true).timeout
@@ -413,7 +417,7 @@ func _make_lock_ring() -> Node3D:
 	return root
 
 func start_round(new_match: bool = false) -> void:
-	for g: String in ["projectile", "ground_aoe"]:
+	for g: String in ["projectile", "ground_aoe", "ground_wave"]:
 		for n in get_tree().get_nodes_in_group(g):
 			n.queue_free()
 	player.reset_for_round(Vector3(0, 0.2, SPAWN_DIST), Vector3.FORWARD, not new_match)

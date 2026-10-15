@@ -916,7 +916,7 @@ func boss_abilities(cid: String = "") -> Array:
 
 ## Equipa/quita una habilidad (máx. 3, mínimo 1). Devuelve si cambió.
 func toggle_boss_ability(id: String) -> bool:
-	if not BossAbilities.DEFS.has(id):
+	if not BossAbilities.has(id):
 		return false
 	var a := boss_abilities()
 	if id in a:

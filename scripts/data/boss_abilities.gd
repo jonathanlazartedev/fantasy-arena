@@ -1,13 +1,15 @@
 class_name BossAbilities
-## Ronda 31: habilidades de jefe. Máx. 3 equipadas por personaje (pestaña «Jefe»). Sin tiempos de
+## Ronda 31/34: habilidades de jefe. Máx. 3 equipadas por personaje (pestaña «Jefe»). Sin tiempos de
 ## recarga: cada una cuesta aguante, maná (Energía) o vida (no se puede usar si te dejaría a 0).
-## dmg = multiplicador del daño fuerte del arma (o del ligero, «light»); force = fuerza de
-## aturdimiento asignada (se suma a Fuerza+arma o a la magia, ver StunRules); resist = súper-armadura
-## (la robustez se multiplica por 1 + resist mientras dura); «tele» = cómo se reconoce.
+## Consulta primero BossAbilitiesExt y luego las 6 base.
 
 const MAX_EQUIPPED := 3
 const DEFAULT := ["estocada"]
 const ORDER := ["estocada", "carga_area", "rafaga", "escudo_mana", "combo_falso", "salto_caida"]
+const EXT_ORDER := [
+	"tajo_retardado", "presa_verdugo", "giro_martillo", "danza_cisne", "paso_espectral",
+	"onda_rastrera", "rayos_trazadores", "lluvia_meteoros", "aliento_dragon", "furia_fase", "postura_contra"
+]
 const COST_NAMES := {"stamina": "aguante", "mana": "maná", "health": "vida"}
 
 const DEFS := {
@@ -38,30 +40,39 @@ const DEFS := {
 		"tele": "El rival se eleva y queda suspendido; empieza a bajar = muévete."},
 }
 
+static func all_ids() -> Array:
+	return ORDER + EXT_ORDER
+
+static func has(id: String) -> bool:
+	return DEFS.has(id) or BossAbilitiesExt.DEFS.has(id)
+
 static func def(id: String) -> Dictionary:
+	if BossAbilitiesExt.DEFS.has(id):
+		return BossAbilitiesExt.DEFS[id]
 	return DEFS.get(id, {})
 
 static func cost_text(id: String) -> String:
 	var d := def(id)
 	return "%d %s" % [int(d.get("cost", 0)), COST_NAMES.get(String(d.get("cost_type", "")), "")]
 
-## Ficha de enciclopedia (texto con BBCode).
 static func codex(id: String) -> String:
 	var d := def(id)
 	if d.is_empty():
 		return ""
 	var t := "[b]%s[/b] · coste %s\n%s\n" % [d["name"], cost_text(id), d["desc"]]
-	if float(d["dmg"]) > 0.0:
-		t += "Daño: x%.2f del %s%s · " % [d["dmg"], "ligero" if d.get("light", false) else "fuerte", " (por tajo)" if id == "rafaga" else ""]
-	if id == "combo_falso":
+	if float(d.get("dmg", 0.0)) > 0.0:
+		t += "Daño: x%.2f del %s%s · " % [float(d["dmg"]), "ligero" if d.get("light", false) else "fuerte", " (por tajo)" if id == "rafaga" else ""]
+	if d.has("hits"):
 		var fs: Array = []
 		for h: Array in d["hits"]:
 			fs.append("%d" % int(h[2]))
 		t += "Fuerza de aturdimiento por golpe: %s (+ Fuerza y arma)\n" % " / ".join(fs)
-	elif float(d["force"]) > 0.0:
-		t += "Fuerza de aturdimiento: %d + %s\n" % [int(d["force"]), "magia" if d["magic"] else "Fuerza y arma"]
+	elif float(d.get("force", 0.0)) > 0.0:
+		t += "Fuerza de aturdimiento: %d + %s\n" % [int(d["force"]), "magia" if d.get("magic", false) else "Fuerza y arma"]
 	else:
 		t += "\n"
-	t += "Robustez durante la habilidad: %s\n" % ("inmune" if float(d["resist"]) >= 99.0 else "x%.1f" % (1.0 + float(d["resist"])))
-	t += "Se reconoce: %s" % d["tele"]
+	var res := float(d.get("resist", 0.0))
+	t += "Robustez durante la habilidad: %s\n" % ("inmune" if res >= 99.0 else "x%.1f" % (1.0 + res))
+	if d.has("tele"):
+		t += "Se reconoce: %s" % d["tele"]
 	return t

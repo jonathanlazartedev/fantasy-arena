@@ -409,6 +409,22 @@ func _incoming_projectile() -> bool:
 	return false
 
 func _avoid_aoe(dir: Vector3) -> bool:
+	
+	for n in me.get_tree().get_nodes_in_group("ground_wave"):
+		var gw := n as GroundWave
+		if gw == null or gw.team == me.team or _aoe_done.has(gw.get_instance_id()):
+			continue
+		var rel := MeshUtil.flat(me.global_position - gw.global_position)
+		var along := rel.dot(gw.direction)
+		var lat := absf(rel.dot(gw.direction.cross(Vector3.UP)))
+		if along > 0.0 and along < 6.0 and lat < gw.width * 0.5 + me.hit_radius + 0.5:
+			_aoe_done[gw.get_instance_id()] = true
+			if randf() < profile.jump_aoe_chance and me.jump():
+				aoe_jumps += 1
+				return true
+			me.move_input = gw.direction.cross(Vector3.UP).normalized()
+			if me.dash():
+				return true
 	for n in me.get_tree().get_nodes_in_group("ground_aoe"):
 		var a := n as GroundAoE
 		if a == null or a.detonated or a.hidden or a.team == me.team or _aoe_done.has(a.get_instance_id()):
@@ -461,6 +477,13 @@ func _try_boss(dist: float, dir: Vector3, opp: Fighter) -> bool:
 		var ok := false
 		match id:
 			"estocada": ok = dist > 3.5 and dist < Fighter.BOSS_DIST + 1.0 and me.facing.dot(dir) > 0.5
+			"tajo_retardado", "presa_verdugo", "danza_cisne": ok = dist < 3.2 and me.facing.dot(dir) > 0.6
+			"giro_martillo": ok = dist < 3.5
+			"paso_espectral": ok = dist > 3.5 and dist < 12.0
+			"onda_rastrera", "rayos_trazadores", "lluvia_meteoros": ok = dist > 4.5 and dist < 15.0
+			"aliento_dragon": ok = dist > 2.5 and dist < 7.0 and me.facing.dot(dir) > 0.5
+			"furia_fase": ok = dist > 4.0 and me.health > 50.0 and me.rage_t <= 0.0
+			"postura_contra": ok = dist < 3.5 and opp.atk_state == Fighter.Atk.WINDUP
 			"carga_area": ok = dist < 3.5 and opp.atk_state == Fighter.Atk.NONE
 			"rafaga": ok = dist > 6.0 and dist < 16.0
 			"escudo_mana": ok = dist < 3.5 and opp.atk_state == Fighter.Atk.WINDUP

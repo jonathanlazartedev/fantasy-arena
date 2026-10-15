@@ -19,6 +19,14 @@ var run_toggled: bool = false
 var target: Node3D = null
 var _wheel: int = 0
 
+## Soporte para multijugador online / Input-Driven
+var command_processor: CommandProcessor
+
+func _ready() -> void:
+	command_processor = CommandProcessor.new()
+	command_processor.name = "CommandProcessor"
+	add_child(command_processor)
+
 ## Objetivos válidos: rival, eikon enemigo (compañero o montura sin jinete) y futuros enemigos
 ## (cualquier nodo del grupo "damageable" de otro equipo que siga vivo). Rival primero.
 func targets() -> Array[Node3D]:
@@ -99,6 +107,10 @@ func _physics_process(delta: float) -> void:
 	_wheel = 0
 	_update_target(cyc)
 	me.face_target = target if lock_on else null
+	
+	# Obtener comando de entrada (aislado para red / online)
+	var cmd: PlayerCommand = command_processor.poll_local_command()
+	
 	if menu_hold:
 		me.move_input = Vector3.ZERO
 		me.want_block = enabled and not me.mounted
@@ -108,55 +120,55 @@ func _physics_process(delta: float) -> void:
 		_atk_hold = -1.0
 		_clear_buffer()
 		for k: String in _prev:
-			_prev[k] = Input.is_action_pressed(k) # al cerrar no se dispara lo pulsado en el menú
+			_prev[k] = Input.is_action_pressed(k)
 		return
-	# Ronda 30: entrada fluida. Stick (mando o táctil): zona muerta RADIAL + curva de respuesta (girar
-	# el stick dibuja un círculo perfecto). Teclado: el vector se interpola ~0,08 s girando (W→D pasa
-	# por las diagonales) en vez de saltar de golpe.
-	var v := shape_stick(Input.get_vector("move_left", "move_right", "move_forward", "move_back", 0.0))
+		
+	var v := shape_stick(cmd.move_vector)
 	if joystick:
 		v = (v + shape_stick(joystick.axis)).limit_length(1.0)
 	_smooth = smooth_input(_smooth, v, delta)
 	v = _smooth
 	var fwd := Vector3.FORWARD
 	if me.face_target:
-		# Movimiento relativo al rival (strafe)
 		var d := MeshUtil.flat(me.face_target.global_position - me.global_position)
 		fwd = d.normalized() if d.length() > 0.1 else me.facing
 	elif camera:
 		fwd = MeshUtil.flat(-camera.global_transform.basis.z).normalized()
 	var right := fwd.cross(Vector3.UP)
 	me.move_input = (right * v.x + fwd * -v.y) if enabled else Vector3.ZERO
-	me.want_block = enabled and Input.is_action_pressed("block")
+	me.want_block = enabled and (cmd.block_pressed or Input.is_action_pressed("block"))
+	
 	if _pressed_edge("run_toggle") and not me.mounted:
 		run_toggled = not run_toggled
 	if me.exhausted > 0.0 or me.mounted:
 		run_toggled = false
 	me.want_sprint = enabled and (Input.is_action_pressed("sprint") or run_toggled)
-	var atk_down := Input.is_action_pressed("attack_sword")
-	me.want_charge = enabled and atk_down # ronda 24: fuerte cargado (mantener)
-	var atk_edge := _pressed_edge("attack_sword")
+	
+	var atk_down := cmd.attack_heavy_held or Input.is_action_pressed("attack_sword")
+	me.want_charge = enabled and atk_down
+	var atk_edge := cmd.attack_light_pressed or _pressed_edge("attack_sword")
 	var swp := _pressed_edge("swap_weapon")
-	var pr := _pressed_edge("parry")
+	var pr := cmd.parry_pressed or _pressed_edge("parry")
 	var sm := _pressed_edge("summon")
-	var ds := _pressed_edge("dash")
+	var ds := cmd.roll_pressed or _pressed_edge("dash")
 	var mt := _pressed_edge("mount")
-	var jp := _pressed_edge("jump")
+	var jp := cmd.jump_pressed or _pressed_edge("jump")
 	var sp := _pressed_edge("special")
 	var cs := _pressed_edge("spell")
 	var cn := _pressed_edge("spell_next")
 	var bs := _pressed_edge("boss")
 	var bn := _pressed_edge("boss_next")
+	
 	_update_buffer_hit()
 	if not enabled:
 		_clear_buffer()
 		return
 	if swp: _try("swap")
-	# Ataque: pulsar = ligero (al soltar), mantener 0,4 s = fuerte. En modo arco dispara.
+	
 	if me.loadout == Fighter.Loadout.BOW:
 		me.hold_pose_t = 0.0
 		if atk_edge: _try("shoot")
-		me.want_shot_hold = atk_down # ronda 31: mantener = disparo cargado
+		me.want_shot_hold = atk_down
 		_atk_hold = -1.0
 	elif atk_down:
 		if _atk_hold < 0.0:
@@ -185,33 +197,26 @@ func _physics_process(delta: float) -> void:
 	if bs: _try("boss")
 	_update_buffer(delta)
 
-# ---------------- Ronda 23: búfer de entrada ----------------
-## Una acción pulsada cuando todavía no es posible (en mitad de un golpe, voltereta, cambio de arma,
-## aturdimiento...) se guarda y se ejecuta en el primer fotograma en que sea posible, si no pasaron
-## más de `buffer_window` segundos. Gana la última pulsación, salvo que la guardada sea esquivar
-## (la esquiva tiene prioridad). Un golpe recibido (nuevo aturdimiento) vacía el búfer; lo pulsado
-## DURANTE el aturdimiento sí se guarda y sale al recuperarse.
-const BUFFER_WINDOW := 0.4 ## por defecto (estilo souls); configurable en Ajustes
+const BUFFER_WINDOW := 0.4
 static var buffer_window: float = BUFFER_WINDOW
 var buffered: String = ""
 var buffer_age: float = 0.0
-var buffer_fired: Array[String] = [] ## historial (pruebas / depuración)
+var buffer_fired: Array[String] = []
 var _prev_stun: float = 0.0
 
 func _do(a: String, retry: bool) -> bool:
 	match a:
-		"light": return me.attack_light() or me._buffered # el combo ya lo encadena
+		"light": return me.attack_light() or me._buffered
 		"heavy": return me.attack_heavy()
 		"shoot": return me.shoot()
 		"swap": return me.swap_loadout()
-		"parry": return not me.mounted and me.parry() # sin parry montado
+		"parry": return not me.mounted and me.parry()
 		"spell": return me.cast_spell()
-		"special": return not me.mounted and me.special() # sin Habilidad/Arte montado
+		"special": return not me.mounted and me.special()
 		"jump": return me.jump()
 		"boss": return me.boss_skill()
 		"mount": return me.toggle_mount()
 		"dash":
-			# Al reintentar no convierte la anticipación de un ligero en estocada con dash
 			if retry and me.atk_state == Fighter.Atk.WINDUP:
 				return false
 			return me.dash()
@@ -223,7 +228,7 @@ func _try(a: String) -> void:
 			_clear_buffer()
 		return
 	if buffered == "dash" and a != "dash":
-		return # la esquiva guardada tiene prioridad
+		return
 	buffered = a
 	buffer_age = 0.0
 
@@ -232,7 +237,7 @@ func _update_buffer(delta: float) -> void:
 		return
 	buffer_age += delta
 	if buffer_age > buffer_window:
-		_clear_buffer() # caducó
+		_clear_buffer()
 		return
 	if buffer_age <= 0.0:
 		return
@@ -242,7 +247,7 @@ func _update_buffer(delta: float) -> void:
 
 func _update_buffer_hit() -> void:
 	if me.stun > _prev_stun + 0.001:
-		_clear_buffer() # lo golpearon: se descarta lo pulsado antes
+		_clear_buffer()
 	_prev_stun = me.stun
 
 func _clear_buffer() -> void:
